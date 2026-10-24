@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+{% include "_head.html" %}
+<title>{% block title %}Login{% endblock %} · {{ P.app_name }}</title>
+</head>
+<body>
+<div class="auth">
+  <div class="side">
+    <div class="collegebar">{% include "_emblem.html" %}<div><b>{{ P.college }}</b>{{ P.department }}</div></div>
+    <div>
+      <a class="logo" href="#"><div class="bolt">⚡</div><span>Grid<b>Sense</b></span></a>
+      <h1>Keep the lights on.<br><em>Predict grid failures early.</em></h1>
+      <p>{{ P.title }}. A tool for grid operators that checks whether a power feeder will stay stable and tells you exactly what to change if it won't.</p>
+      <div class="points">
+        <div><span>🧠</span>Neural network trained on 60,000 grid simulations</div>
+        <div><span>🪜</span>Step-by-step readings for each location on the grid</div>
+        <div><span>🛠️</span>Clear actions to prevent power cuts, plus a PDF report</div>
+      </div>
+    </div>
+    <div class="muted" style="font-size:13px">Project team: {{ P.team | join(", ") }} · {{ P.guide }}</div>
+  </div>
+  <div class="formside">
+    <button class="iconbtn theme-corner" id="themeBtn" onclick="toggleTheme()" title="Switch light / dark mode">🌙</button>
+    <div class="formcard">
+      {% block form %}
+      <h2>Welcome back 👋</h2>
+      <p class="sub">Log in to the grid operator console.</p>
+      <form method="post">
+        <div class="field"><label>Username</label><input type="text" name="username" required autofocus autocomplete="username"></div>
+        <div class="field"><label>Password</label><input type="password" name="password" required autocomplete="current-password"></div>
+        <button class="btn primary" style="width:100%;justify-content:center;margin-top:6px" type="submit">Log in →</button>
+      </form>
+      {% include "_flash.html" %}
+      <p class="sub" style="margin-top:18px">New here? <a href="{{ url_for('register') }}">Create an account</a></p>
+      <div class="demo">Demo account: <code>admin</code> / <code>admin123</code></div>
+      {% endblock %}
+    </div>
+  </div>
+</div>
+</body>
+</html>

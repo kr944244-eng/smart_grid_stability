@@ -1,0 +1,309 @@
+{% extends "base.html" %}
+{% block title %}Stability Check{% endblock %}
+{% block content %}
+<div class="pagehead">
+  <h1>Grid <em>Stability Check</em></h1>
+  <p>Enter one set of readings for each location on the feeder, step by step. The trained neural network then predicts whether
+     the grid stays stable, how risky it is for the people it supplies, and what the operator should change.</p>
+</div>
+
+<!-- ============ WIZARD ============ -->
+<div id="wizardView">
+  <div class="stepper" id="stepper"></div>
+  <div class="wizard">
+    <div class="card" id="steps"></div>
+    <div class="card side-sum">
+      <h4>Feeder summary</h4>
+      <div class="sumrow"><span>Site</span><b id="sumSite">–</b></div>
+      <div id="sumRows"></div>
+      <div class="sumrow"><span>Plant must supply (p1)</span><b id="sumP1" class="c-amber">–</b></div>
+      <p class="muted" style="font-size:12px;margin-top:12px">Power supplied by the plant always equals total demand:
+        p1 = demand of Residential + Industrial + Commercial.</p>
+    </div>
+  </div>
+</div>
+
+<!-- ============ RESULT ============ -->
+<div id="resultView">
+  <div class="stepper" id="stepperDone"></div>
+  <div class="card" style="margin-bottom:22px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+    <div><div class="muted" style="font-size:13px">Assessment result</div>
+      <div style="font-size:20px;font-weight:600" id="resTitle">–</div></div>
+    <div class="result-actions" style="margin-top:0">
+      <a class="btn primary" id="pdfBtn" href="#">📄 Download PDF report</a>
+      <button class="btn" onclick="editReadings()">✏️ Edit readings</button>
+      <button class="btn" onclick="newAssessment()">➕ New check</button>
+    </div>
+  </div>
+
+  <div class="result-top">
+    <div class="card verdict">
+      <div class="gauge">
+        <svg width="230" height="230" viewBox="0 0 240 240">
+          <circle class="track" cx="120" cy="120" r="100" stroke-width="16" fill="none"/>
+          <circle class="bar" id="gaugeBar" cx="120" cy="120" r="100" stroke-width="16" fill="none"
+                  stroke-linecap="round" stroke-dasharray="628.3" stroke-dashoffset="628.3"/>
+        </svg>
+        <div class="center"><div class="pct" id="pct">–</div><div class="lbl">Chance of stability</div></div>
+      </div>
+      <div class="badge" id="badge">–</div>
+      <div class="risk-meter" id="riskMeter">
+        <div style="background:#ef4444;color:#ef4444"></div><div style="background:#f97316;color:#f97316"></div>
+        <div style="background:#eab308;color:#eab308"></div><div style="background:#22c55e;color:#22c55e"></div>
+      </div>
+      <div class="risk-labels"><span>Critical</span><span>At risk</span><span>Watch</span><span>Safe</span></div>
+      <div style="margin-top:10px;font-size:14px">Risk level: <b id="riskLevel">–</b></div>
+    </div>
+
+    <div class="card">
+      <div class="grid2" style="gap:18px">
+        <div class="impact">
+          <div class="box"><b>What this means for the grid</b><span id="meaning">–</span></div>
+          <div class="box"><b>Impact on people</b><span id="people">–</span></div>
+          <div class="box"><b>Plant supply needed</b><span id="supply">–</span></div>
+        </div>
+        <div id="diagramWrap">
+          <svg viewBox="0 0 360 300" width="100%">
+            <path class="flow" id="f2" d="M180 140 L62 54"/>
+            <path class="flow" id="f3" d="M180 140 L298 54"/>
+            <path class="flow" id="f4" d="M180 140 L180 236"/>
+            <circle class="pulse" cx="180" cy="140" r="34"/>
+            <circle class="nodec prod" cx="180" cy="140" r="34"/><text class="ntext" x="180" y="140">🏭</text>
+            <text class="nlab" x="222" y="132" text-anchor="start" style="text-anchor:start">Power Plant</text>
+            <circle class="nodec" cx="62" cy="54" r="30"/><text class="ntext" x="62" y="54">🏘️</text>
+            <text class="nlab" x="62" y="100">Residential</text><text class="nsub" x="62" y="113" id="dT2">–</text>
+            <circle class="nodec" cx="298" cy="54" r="30"/><text class="ntext" x="298" y="54">🏗️</text>
+            <text class="nlab" x="298" y="100">Industrial</text><text class="nsub" x="298" y="113" id="dT3">–</text>
+            <circle class="nodec" cx="180" cy="236" r="30"/><text class="ntext" x="180" y="236">🏬</text>
+            <text class="nlab" x="180" y="282">Commercial</text><text class="nsub" x="180" y="295" id="dT4">–</text>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:22px">
+    <h3>🛠️ Recommended actions for the operator</h3>
+    <div class="cap">An action plan found by the model itself. At each step it tests every reading, picks the smallest realistic change with the biggest effect, and applies it before choosing the next step.</div>
+    <div class="recs" id="recs"></div>
+    <div id="combined"></div>
+  </div>
+
+  <div class="card whatif">
+    <div>
+      <h3>🔬 What-if explorer</h3>
+      <p class="cap">Change one reading across its full range while the rest of your grid stays the same.</p>
+      <select id="sweepParam" onchange="runSweep()"></select>
+      <p class="hint" id="sweepHint"></p>
+    </div>
+    <div class="chartbox" id="sweepChart"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+const NODES = {{ nodes | tojson }};
+const RANGES = {{ ranges | tojson }};
+const ACCENT = {1:"var(--amber)", 2:"var(--cyan)", 3:"var(--blue)", 4:"var(--violet)"};
+const HELP = {
+  tau1: "Seconds the plant's control system takes to adjust its output after the price (grid frequency) changes.",
+  tau:  "Seconds this area takes to react after the electricity price changes. Automated smart meters react in 1–2 s; manual response can take 8–10 s.",
+  p:    "How much power this area is drawing right now (per-unit, 1.0 = normal load).",
+  g1:   "How strongly the plant changes its output when the price changes. 0.05 = barely, 1.0 = very strongly.",
+  g:    "How strongly people here change their usage when the price changes. 0.05 = barely, 1.0 = very strongly.",
+};
+const EXAMPLES = {
+  stable:   {tau1:1.919,tau2:0.735,tau3:0.956,tau4:5.602,p2:-1.585,p3:-1.01,p4:-1.846,g1:0.528,g2:0.36,g3:0.622,g4:0.341},
+  unstable: {tau1:8.367,tau2:5.111,tau3:8.377,tau4:6.85,p2:-0.608,p3:-1.274,p4:-1.391,g1:0.968,g2:0.808,g3:0.776,g4:0.989},
+};
+const TOTAL = NODES.length + 1;                // 4 locations + review
+let step = 1, maxStep = 1, values = {}, site = "Feeder 1", last = null;
+
+/* UI value <-> model value (demand is shown positive, the model uses negative numbers) */
+const toUI = (f, v) => kindOf(f) === "p" ? -v : v;
+const toModel = (f, v) => kindOf(f) === "p" ? -v : v;
+const uiRange = f => { const [lo,hi] = RANGES[f]; return kindOf(f) === "p" ? [-hi, -lo] : [lo, hi]; };
+
+function buildStepper(id, doneAll){
+  const labels = NODES.map(n => n.icon + " " + n.name).concat(["✅ Review & check"]);
+  document.getElementById(id).innerHTML = labels.map((l,i) => {
+    const s = i+1, cls = doneAll ? "done" : s === step ? "on" : s <= maxStep ? "done" : "locked";
+    const click = doneAll ? "editReadings()" : `goStep(${s})`;
+    return `<div class="step-dot ${cls}" onclick="${click}"><span class="n">${cls === "done" ? "✓" : s}</span>${l}</div>`;
+  }).join("");
+}
+
+function reading(f){
+  const [lo,hi] = uiRange(f), k = kindOf(f), info = PARAM_INFO[k];
+  const help = HELP[f] || HELP[k];
+  return `<div class="reading">
+    <div class="top"><b>${info.label}${info.unit ? " (" + info.unit + ")" : ""}</b>
+      <input type="number" id="n_${f}" min="${lo}" max="${hi}" step="0.01" onchange="setVal('${f}', this.value, true)"></div>
+    <div class="help">${help}</div>
+    <input type="range" id="r_${f}" min="${lo}" max="${hi}" step="0.01" oninput="setVal('${f}', this.value)">
+    <div class="scale"><span>${lo.toFixed(2)}</span><span>${((lo+hi)/2).toFixed(2)}</span><span>${hi.toFixed(2)}</span></div>
+  </div>`;
+}
+
+function buildSteps(){
+  let html = NODES.map((n,i) => `
+    <div class="stepcard" id="step${i+1}" style="--accent:${ACCENT[n.id]}">
+      ${i === 0 ? `<div class="field"><label>Site / feeder name (appears on the report)</label>
+          <input type="text" id="siteName" value="Feeder 1" oninput="site=this.value||'Feeder 1';updateSummary()"></div>
+        <div class="quickfill">Demo shortcut: <button class="btn sm" onclick="fill('stable')">✅ Stable sample</button>
+          <button class="btn sm" onclick="fill('unstable')">⚠️ Unstable sample</button>
+          <button class="btn sm" onclick="fill('random')">🎲 Random</button></div>` : ""}
+      <div class="stephead"><div class="bigicon">${n.icon}</div>
+        <div><small>Step ${i+1} of ${TOTAL} · ${n.role}</small><h2>${n.name}</h2><p>${n.desc}</p></div></div>
+      ${n.params.map(reading).join("")}
+      <div class="stepnav">
+        <button class="btn" onclick="goStep(${i})" ${i === 0 ? "disabled" : ""}>← Back</button>
+        <button class="btn primary" onclick="next()">Save & continue →</button>
+      </div>
+    </div>`).join("");
+  html += `<div class="stepcard" id="step${TOTAL}">
+      <div class="stephead"><div class="bigicon">✅</div>
+        <div><small>Step ${TOTAL} of ${TOTAL}</small><h2>Review your readings</h2><p>Check everything, then run the stability check.</p></div></div>
+      <div class="review-grid" id="reviewGrid"></div>
+      <div class="stepnav">
+        <button class="btn" onclick="goStep(${TOTAL-1})">← Back</button>
+        <button class="btn primary" id="runBtn" onclick="runCheck()">⚡ Run stability check</button>
+      </div>
+    </div>`;
+  steps.innerHTML = html;
+}
+
+function setVal(f, uiV, fromBox){
+  const [lo,hi] = uiRange(f);
+  let v = parseFloat(uiV); if (isNaN(v)) v = (lo+hi)/2;
+  v = Math.min(hi, Math.max(lo, v));
+  values[f] = toModel(f, v);
+  const r = document.getElementById("r_"+f), n = document.getElementById("n_"+f);
+  r.value = v; r.style.setProperty("--fill", ((v-lo)/(hi-lo)*100) + "%");
+  n.value = v.toFixed(2);
+  updateSummary();
+}
+
+function fill(kind){
+  FEATS.forEach(f => {
+    const [lo,hi] = uiRange(f);
+    setVal(f, kind === "random" ? lo + Math.random()*(hi-lo) : toUI(f, EXAMPLES[kind][f]));
+  });
+}
+
+function updateSummary(){
+  if (FEATS.some(f => values[f] === undefined)) return;   // still filling the form
+  sumSite.textContent = site;
+  sumRows.innerHTML = NODES.map(n => {
+    const reached = n.id <= maxStep;
+    const txt = n.params.map(f => (kindOf(f) === "tau" ? "τ " : kindOf(f) === "p" ? "D " : "γ ") + toUI(f, values[f]).toFixed(2)).join("  ");
+    return `<div class="sumrow"><span>${n.icon} ${n.name}</span><b style="opacity:${reached ? 1 : .35}">${txt}</b></div>`;
+  }).join("");
+  const p1 = -(values.p2 + values.p3 + values.p4);
+  sumP1.textContent = p1.toFixed(2) + " p.u.";
+}
+
+function goStep(s){
+  if (s < 1 || s > maxStep) return;
+  step = s;
+  document.querySelectorAll(".stepcard").forEach((c,i) => c.classList.toggle("on", i+1 === s));
+  if (s === TOTAL) buildReview();
+  buildStepper("stepper");
+  window.scrollTo({top: document.getElementById("wizardView").offsetTop - 80, behavior: "smooth"});
+}
+function next(){ maxStep = Math.max(maxStep, step+1); goStep(step+1); updateSummary(); }
+
+function buildReview(){
+  reviewGrid.innerHTML = NODES.map(n => `<div class="review-node" style="--accent:${ACCENT[n.id]}">
+    <h4>${n.icon} ${n.name}<a onclick="goStep(${n.id})">Edit</a></h4>
+    ${n.params.map(f => `<div class="sumrow"><span>${PARAM_INFO[kindOf(f)].label}</span><b>${toUI(f, values[f]).toFixed(2)} ${PARAM_INFO[kindOf(f)].unit}</b></div>`).join("")}
+    ${n.id === 1 ? `<div class="sumrow"><span>Power supplied</span><b>${(-(values.p2+values.p3+values.p4)).toFixed(2)} p.u.</b></div>` : ""}
+  </div>`).join("");
+}
+
+async function runCheck(){
+  runBtn.disabled = true; runBtn.textContent = "Analysing…";
+  try {
+    last = await api("/api/predict", {inputs: values, site});
+    showResult(last);
+  } finally { runBtn.disabled = false; runBtn.textContent = "⚡ Run stability check"; }
+}
+
+function showResult(r){
+  wizardView.style.display = "none";
+  resultView.classList.add("on");
+  buildStepper("stepperDone", true);
+  const prob = r.probability_stable, stable = r.label === "stable", color = r.risk.color;
+  document.documentElement.style.setProperty("--state", color);
+  resTitle.textContent = `${site} · Report #${r.id}`;
+  pdfBtn.href = `/report/${r.id}.pdf`;
+  gaugeBar.style.strokeDashoffset = 628.3;
+  requestAnimationFrame(() => setTimeout(() => gaugeBar.style.strokeDashoffset = 628.3 * (1 - prob), 50));
+  pct.textContent = (prob*100).toFixed(1) + "%";
+  badge.textContent = stable ? "GRID STABLE" : "GRID UNSTABLE";
+  riskLevel.textContent = r.risk.level; riskLevel.style.color = color;
+  const idx = {"Critical":0, "At Risk":1, "Watch":2, "Safe":3}[r.risk.level];
+  riskMeter.querySelectorAll("div").forEach((d,i) => d.classList.toggle("on", i === idx));
+  meaning.textContent = r.risk.meaning;
+  people.textContent = r.risk.people;
+  supply.innerHTML = `The power plant must supply <strong>${r.p1.toFixed(2)} p.u.</strong> to cover all three areas.`;
+  diagramWrap.classList.toggle("unstable-mode", !stable);
+  [2,3,4].forEach(i => {
+    document.getElementById("dT"+i).textContent = "τ " + values["tau"+i].toFixed(1) + " s";
+    document.getElementById("f"+i).style.animationDuration = (0.4 + values["tau"+i]/6).toFixed(2) + "s";
+  });
+  recs.innerHTML = r.recommendations.length ? r.recommendations.map((x,i) => `
+    <div class="rec"><div class="ic">${x.icon}</div>
+      <div><h4>Step ${i+1}: ${esc(x.title)}</h4><div class="chg">${esc(x.change)}</div><p>${esc(x.how)}</p></div>
+      <div class="after" style="color:${x.prob_after >= .5 ? "var(--green)" : "var(--amber)"}">${pctFmt(x.prob_after)}<small>${x.prob_after >= .5 ? "after step " + (i+1) : "not enough alone, keep going"}</small></div></div>`).join("")
+    : `<div class="empty"><div class="big">🎉</div>No action needed. This feeder already has a healthy safety margin. Keep monitoring as usual.</div>`;
+  combined.innerHTML = r.combined_after != null
+    ? (r.combined_after >= 0.5
+      ? `<div class="combined">✅ Following all <b>${r.recommendations.length} steps</b> raises stability from
+          <b>${(prob*100).toFixed(1)}%</b> to <b>${(r.combined_after*100).toFixed(1)}%</b>, so the feeder becomes safe to operate.</div>`
+      : `<div class="combined" style="border-color:var(--red);background:color-mix(in srgb,var(--red) 8%,transparent)">⚠️ These steps raise stability from
+          <b>${(prob*100).toFixed(1)}%</b> to <b>${(r.combined_after*100).toFixed(1)}%</b>. It is still not enough, so plan load-shedding or bring in backup supply while the changes are made.</div>`)
+    : "";
+  if (!sweepParam.options.length)
+    sweepParam.innerHTML = FEATS.map(f => `<option value="${f}">${prettyParam(f)}</option>`).join("");
+  sweepParam.value = r.recommendations.length ? r.recommendations[0].feature : "tau1";
+  runSweep();
+  window.scrollTo({top: 0, behavior: "smooth"});
+}
+
+async function runSweep(){
+  const f = sweepParam.value;
+  const r = await api("/api/sweep", {param: f, inputs: values});
+  const xs = r.x.map(x => toUI(f, x)), ys = r.y.map(v => v*100);
+  if (xs[0] > xs[xs.length-1]){ xs.reverse(); ys.reverse(); }
+  const cur = toUI(f, values[f]);
+  let k = 0; xs.forEach((x,i) => { if (Math.abs(x-cur) < Math.abs(xs[k]-cur)) k = i; });
+  const unit = PARAM_INFO[kindOf(f)].unit;
+  drawSweep(sweepChart, xs, ys, cur, ys[k], prettyParam(f) + (unit ? ` (${unit})` : ""));
+  const ok = xs.filter((x,i) => ys[i] >= 50);
+  sweepHint.innerHTML = ok.length
+    ? `Keeping everything else the same, the grid is <b>stable</b> when ${PARAM_INFO[kindOf(f)].label.toLowerCase()} at
+       ${NODE_NAMES[nodeOf(f)]} is between <b>${Math.min(...ok).toFixed(2)}</b> and <b>${Math.max(...ok).toFixed(2)}</b> ${unit}.`
+    : `Changing only this reading cannot make the grid stable. Several readings need to change together (see the actions above).`;
+}
+
+function editReadings(){
+  resultView.classList.remove("on"); wizardView.style.display = "block";
+  document.documentElement.style.setProperty("--state", "var(--cyan)");
+  goStep(TOTAL);
+}
+function newAssessment(){
+  resultView.classList.remove("on"); wizardView.style.display = "block";
+  document.documentElement.style.setProperty("--state", "var(--cyan)");
+  maxStep = 1; fill("mid"); goStep(1);
+}
+
+const pctFmt = p => p > 0 && p < 0.001 ? "<0.1%" : (p*100).toFixed(1) + "%";
+const FEATS = NODES.flatMap(n => n.params);
+EXAMPLES.mid = Object.fromEntries(FEATS.map(f => [f, (RANGES[f][0] + RANGES[f][1]) / 2]));
+buildSteps(); fill("mid"); goStep(1);
+let rz; window.addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(() => { if (last) runSweep(); }, 200); });
+window.addEventListener("themechange", () => { if (last) runSweep(); });
+</script>
+{% endblock %}

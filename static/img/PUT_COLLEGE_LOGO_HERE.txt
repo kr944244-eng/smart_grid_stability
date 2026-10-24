@@ -1,0 +1,1 @@
+Put your college logo here, named college_logo.png (or .jpg). It appears in the banner, on the login page and in the PDF report.

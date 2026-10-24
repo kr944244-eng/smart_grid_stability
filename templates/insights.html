@@ -1,0 +1,84 @@
+{% extends "base.html" %}
+{% block title %}Model Insights{% endblock %}
+{% block content %}
+<div class="pagehead">
+  <h1>Model <em>Insights</em></h1>
+  <p id="splitInfo">How the model was trained, how well it performs, and what drives grid stability.</p>
+</div>
+<div class="stats" style="margin-bottom:22px">
+  <div class="stat"><small>Simulations</small><div class="c-cyan" id="sRows">–</div></div>
+  <div class="stat"><small>Best model</small><div class="c-amber" id="sModel" style="font-size:17px;padding-top:6px">–</div></div>
+  <div class="stat"><small>Test accuracy</small><div class="c-green" id="sAcc">–</div></div>
+  <div class="stat"><small>ROC-AUC</small><div class="c-cyan" id="sAuc">–</div></div>
+</div>
+<div class="grid2">
+  <div class="card"><h3>Model comparison</h3>
+    <div class="cap">Four algorithms trained on the same data. The one with the best F1 score makes the predictions.</div>
+    <div class="chartbox" style="height:260px" id="cmpChart"></div></div>
+  <div class="card"><h3>What drives stability?</h3>
+    <div class="cap">Permutation importance: how much the F1 score drops when one reading is shuffled.</div>
+    <div class="chartbox" id="impChart"></div></div>
+  <div class="card"><h3>Detailed metrics</h3><div class="cap">All scores on the held-out test set.</div>
+    <div class="scroll"><table class="tbl" id="metricsTable"></table></div></div>
+  <div class="card"><h3>Confusion matrix</h3><div class="cap" id="cmCap">Best model on the test set.</div>
+    <div class="cm" id="cm"></div></div>
+</div>
+
+<h2 style="margin:34px 0 16px;font-size:24px">The real-world problem</h2>
+<div class="how">
+  <div class="card"><h3><span class="ico">🌞</span>Why grids become unstable</h3>
+    <p>With more solar and wind, supply changes minute by minute. Smart grids balance this with dynamic pricing: when power is short, the price rises and people use less.
+       But if homes, factories and plants react too slowly or too strongly, demand swings back and forth and the grid starts to oscillate.</p></div>
+  <div class="card"><h3><span class="ico">⚠️</span>What happens to people</h3>
+    <p>Oscillations cause voltage and frequency swings. Protective relays then trip to save equipment, which means load-shedding, damaged appliances,
+       stopped factories and hospitals running on backup. Predicting it early lets the operator act before anyone loses power.</p></div>
+  <div class="card"><h3><span class="ico">🧠</span>How this system helps</h3>
+    <p>The operator enters one set of readings per location. The neural network predicts stability in milliseconds, rates the risk, and searches for the
+       smallest changes (faster demand response, better tariffs, load shifting) that make the grid safe again.</p></div>
+  <div class="card"><h3><span class="ico">📊</span>The data</h3>
+    <p>Decentral Smart Grid Control (DSGC) simulations of a 4-node star grid: 1 producer and 3 consumers (UCI / Kaggle). 10,000 simulations, each with
+       the consumers in all 6 orders = 60,000 rows.</p></div>
+  <div class="card"><h3><span class="ico">🧪</span>Fair testing</h3>
+    <p>Train and test sets are split by simulation, so copies of the same grid never appear in both. The raw <i>stab</i> value is removed to avoid label leakage,
+       and p1 is removed because it equals total demand.</p></div>
+  <div class="card"><h3><span class="ico">🏗️</span>Architecture</h3>
+    <p>Flask back end (login, SQLite history, prediction API, PDF reports, CSV batch processing) + HTML/CSS/JS front end. Model: scikit-learn MLP
+       (128-64-32 neurons) with standard scaling.</p></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let META;
+async function init(){
+  META = await api("/api/meta");
+  const best = META.results.find(r => r.model === META.best_model);
+  sRows.textContent = META.dataset.rows.toLocaleString();
+  sModel.textContent = META.best_model;
+  sAcc.textContent = (best.accuracy*100).toFixed(2) + "%";
+  sAuc.textContent = best.roc_auc.toFixed(4);
+  splitInfo.textContent = `Trained on ${META.dataset.train_rows.toLocaleString()} grid scenarios and tested on ${META.dataset.test_rows.toLocaleString()} scenarios it had never seen.`;
+  metricsTable.innerHTML = `<tr><th>Model</th><th class="num">Acc</th><th class="num">Prec</th><th class="num">Recall</th><th class="num">F1</th><th class="num">AUC</th></tr>` +
+    META.results.map(r => `<tr class="${r.model===META.best_model?"best":""}"><td>${r.model}</td><td class="num">${r.accuracy.toFixed(3)}</td>
+      <td class="num">${r.precision.toFixed(3)}</td><td class="num">${r.recall.toFixed(3)}</td><td class="num">${r.f1.toFixed(3)}</td><td class="num">${r.roc_auc.toFixed(3)}</td></tr>`).join("");
+  const [[tn,fp],[fn,tp]] = META.confusion_matrix;
+  cmCap.textContent = `${META.best_model} on ${META.dataset.test_rows.toLocaleString()} test grids.`;
+  const c = (v,good,lab) => `<div class="cell" style="background:${good?"rgba(34,197,94,.14)":"rgba(239,68,68,.14)"};color:${good?"var(--green)":"var(--red)"}">${v.toLocaleString()}<small>${lab}</small></div>`;
+  cm.innerHTML = `<div></div><div class="h">Predicted unstable</div><div class="h">Predicted stable</div>
+    <div class="h" style="text-align:right">Actually<br>unstable</div>${c(tn,1,"correct")}${c(fp,0,"false alarm")}
+    <div class="h" style="text-align:right">Actually<br>stable</div>${c(fn,0,"missed")}${c(tp,1,"correct")}`;
+  draw();
+}
+function draw(){
+  const res = META.results, imp = META.importance;
+  drawGrouped(cmpChart, res.map(r => r.model.replace(" (ANN)","")),
+    [{name:"Accuracy", color:css("--cyan"), values:res.map(r => r.accuracy*100)},
+     {name:"F1 score", color:css("--amber"), values:res.map(r => r.f1*100)}], 60, 100);
+  drawHBars(impChart, imp.map(d => shortParam(d.feature)), imp.map(d => d.importance),
+    imp.map(d => kindOf(d.feature) === "tau" ? css("--cyan") : kindOf(d.feature) === "g" ? css("--violet") : css("--amber")));
+}
+let rz; window.addEventListener("resize", () => { clearTimeout(rz); rz = setTimeout(() => META && draw(), 200); });
+window.addEventListener("themechange", () => META && draw());
+init();
+</script>
+{% endblock %}

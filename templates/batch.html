@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+{% block title %}Batch Upload{% endblock %}
+{% block content %}
+<div class="pagehead">
+  <h1>Batch <em>Prediction</em></h1>
+  <p>Got readings for many feeders, or a whole day of SCADA logs? Upload a CSV and check thousands of grids in one go.</p>
+</div>
+
+<div class="grid2">
+  <div class="card">
+    <h3>1 · Upload your CSV</h3>
+    <div class="cap">One row per grid. Needs the columns <span class="mono">tau1–tau4, p2–p4, g1–g4</span>. Extra columns are kept.</div>
+    <form method="post" enctype="multipart/form-data" id="upForm">
+      <label class="drop" id="drop">
+        <input type="file" name="file" id="file" accept=".csv" onchange="picked()">
+        <div class="big">📂</div>
+        <div id="dropTxt"><b>Click to choose a file</b> or drag &amp; drop it here</div>
+        <div class="muted" style="font-size:12px;margin-top:4px">CSV, up to 10 MB</div>
+      </label>
+      <button class="btn primary" style="margin-top:14px" id="upBtn" disabled type="submit">⚡ Predict all grids</button>
+    </form>
+  </div>
+  <div class="card">
+    <h3>2 · Not sure about the format?</h3>
+    <div class="cap">Download a sample file with 30 real grids from the dataset and try it.</div>
+    <a class="btn" href="{{ url_for('static', filename='sample_grids.csv') }}" download>⬇️ Download sample CSV</a>
+    <div class="scroll" style="margin-top:16px"><table class="tbl">
+      <tr><th>Column</th><th>Meaning</th></tr>
+      <tr><td class="mono">tau1</td><td>Power plant reaction time (s)</td></tr>
+      <tr><td class="mono">tau2–tau4</td><td>Reaction time of Residential / Industrial / Commercial (s)</td></tr>
+      <tr><td class="mono">p2–p4</td><td>Power demand of each area (negative or positive both work)</td></tr>
+      <tr><td class="mono">g1–g4</td><td>Price sensitivity of each location</td></tr>
+      <tr><td class="mono">stabf</td><td>(optional) true answer, used to measure accuracy</td></tr>
+    </table></div>
+  </div>
+</div>
+
+{% if result %}
+<div class="card" style="margin-top:22px">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+    <div><h3>✅ Results for {{ result.filename }}</h3>
+      <div class="cap" style="margin:0">{{ result.total }} grids checked{% if result.skipped %} · {{ result.skipped }} rows skipped (empty or invalid){% endif %}{% if result.out_of_range %} · {{ result.out_of_range }} values outside the trained range were clipped{% endif %}.</div></div>
+    <a class="btn primary" href="{{ url_for('batch_download', batch_id=result.id) }}">⬇️ Download results CSV</a>
+  </div>
+  <div class="stats" style="margin:18px 0">
+    <div class="stat"><small>Grids</small><div class="c-cyan">{{ result.total }}</div></div>
+    <div class="stat"><small>Stable</small><div class="c-green">{{ result.stable }}</div></div>
+    <div class="stat"><small>Unstable</small><div class="c-red">{{ result.unstable }}</div></div>
+    <div class="stat"><small>{{ "Model accuracy" if result.accuracy is not none else "Unstable share" }}</small>
+      <div class="c-amber">{{ "%.1f"|format((result.accuracy if result.accuracy is not none else result.unstable/result.total)*100) }}%</div></div>
+  </div>
+  {% set rc = {"Safe":"#22c55e","Watch":"#eab308","At Risk":"#f97316","Critical":"#ef4444"} %}
+  <div class="bars">{% for k, c in rc.items() %}{% if result.risk[k] %}<div style="width:{{ result.risk[k]/result.total*100 }}%;background:{{ c }}" title="{{ k }}: {{ result.risk[k] }}"></div>{% endif %}{% endfor %}</div>
+  <div class="legend">{% for k, c in rc.items() %}<span><i style="background:{{ c }}"></i>{{ k }}: <b>{{ result.risk[k] }}</b></span>{% endfor %}</div>
+  <div class="scroll" style="margin-top:16px;max-height:460px;overflow-y:auto"><table class="tbl">
+    <tr><th>#</th>{% for c in result.columns %}<th class="{{ 'num' if c not in ('prediction','risk','stabf') }}">{{ c }}</th>{% endfor %}</tr>
+    {% for r in result.rows %}
+    <tr><td class="mono">{{ loop.index }}</td>
+      {% for c in result.columns %}
+        {% if c in ('prediction','stabf') %}<td><span class="pill {{ r[c] }}">{{ r[c] | upper }}</span></td>
+        {% elif c == 'risk' %}<td class="risk-{{ r[c].split(' ')[0] }}" style="font-weight:600">{{ r[c] }}</td>
+        {% elif c == 'probability_stable' %}<td class="num">{{ "%.1f"|format(r[c]*100) }}%</td>
+        {% else %}<td class="num">{{ "%.3f"|format(r[c]) }}</td>{% endif %}
+      {% endfor %}</tr>
+    {% endfor %}
+  </table></div>
+  {% if result.total > 200 %}<p class="muted" style="font-size:12px;margin-top:8px">Showing the first 200 rows. Download the CSV for all {{ result.total }}.</p>{% endif %}
+</div>
+{% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+const drop = document.getElementById("drop"), file = document.getElementById("file");
+function picked(){
+  if (file.files.length){ dropTxt.innerHTML = "📄 <b>" + esc(file.files[0].name) + "</b> selected"; upBtn.disabled = false; }
+}
+["dragover","dragenter"].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.add("over"); }));
+["dragleave","drop"].forEach(e => drop.addEventListener(e, ev => { ev.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", ev => { file.files = ev.dataTransfer.files; picked(); });
+document.getElementById("upForm").addEventListener("submit", () => { upBtn.textContent = "Predicting…"; });
+</script>
+{% endblock %}

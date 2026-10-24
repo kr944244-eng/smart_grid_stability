@@ -1,0 +1,15 @@
+{% extends "login.html" %}
+{% block title %}Create account{% endblock %}
+{% block form %}
+<h2>Create account ✨</h2>
+<p class="sub">Each operator gets their own prediction history.</p>
+<form method="post">
+  <div class="field"><label>Full name</label><input type="text" name="full_name" required></div>
+  <div class="field"><label>Username (letters/numbers)</label><input type="text" name="username" required autocomplete="username"></div>
+  <div class="field"><label>Password (min 6 characters)</label><input type="password" name="password" required autocomplete="new-password"></div>
+  <div class="field"><label>Confirm password</label><input type="password" name="confirm" required autocomplete="new-password"></div>
+  <button class="btn primary" style="width:100%;justify-content:center;margin-top:6px" type="submit">Create account →</button>
+</form>
+{% include "_flash.html" %}
+<p class="sub" style="margin-top:18px">Already have an account? <a href="{{ url_for('login') }}">Log in</a></p>
+{% endblock %}

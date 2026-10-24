@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+{% include "_head.html" %}
+<title>{% block title %}{{ P.app_name }}{% endblock %} · {{ P.app_name }}</title>
+</head>
+<body>
+<nav class="top"><div class="wrap">
+  <a class="logo" href="{{ url_for('predict_page') }}"><div class="bolt">⚡</div><span>Grid<b>Sense</b></span></a>
+  <ul class="navlinks" id="navlinks">
+    <li><a href="{{ url_for('predict_page') }}" class="{{ 'on' if active=='predict' }}">⚡ Predict</a></li>
+    <li><a href="{{ url_for('batch_page') }}" class="{{ 'on' if active=='batch' }}">📂 Batch Upload</a></li>
+    <li><a href="{{ url_for('history_page') }}" class="{{ 'on' if active=='history' }}">🕘 History</a></li>
+    <li><a href="{{ url_for('insights_page') }}" class="{{ 'on' if active=='insights' }}">📊 Model Insights</a></li>
+  </ul>
+  <div class="navright">
+    <button class="iconbtn" id="themeBtn" onclick="toggleTheme()" title="Switch light / dark mode">🌙</button>
+    <div class="userchip"><span class="hi">Hi,</span> <b>{{ user_name }}</b><a href="{{ url_for('logout') }}">Logout</a></div>
+    <button class="iconbtn burger" onclick="document.getElementById('navlinks').classList.toggle('open')">☰</button>
+  </div>
+</div></nav>
+
+<div class="wrap">
+  <div class="banner">
+    {% include "_emblem.html" %}
+    <div class="txt">
+      <div class="col">{{ P.college }}</div>
+      <div class="dep">{{ P.department }}</div>
+      <div class="ttl">{{ P.title }}</div>
+    </div>
+    <div class="team"><b>Project team</b>{{ P.team | join(" · ") }}<br>{{ P.guide }}</div>
+  </div>
+  {% include "_flash.html" %}
+</div>
+
+<main class="wrap">{% block content %}{% endblock %}</main>
+
+<footer>{{ P.app_name }} · {{ P.title }} · {{ P.college }}</footer>
+{% block scripts %}{% endblock %}
+</body>
+</html>
